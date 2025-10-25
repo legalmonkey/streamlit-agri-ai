@@ -21,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS - Dark green theme from your FastAPI app
+# Custom CSS - Dark green theme
 st.markdown("""
 <style>
     :root {
@@ -57,7 +57,7 @@ HEAT_STRESS_THRESHOLD = 35.0
 OPTIMAL_TEMP_RANGE = (20.0, 30.0)
 
 # =============================================================================
-# Crop Growth Stages
+# Crop Growth Stages (COMPLETE)
 # =============================================================================
 CROP_GROWTH_STAGES = {
     "Rice": {
@@ -115,16 +115,23 @@ CROP_GROWTH_STAGES = {
     }
 }
 
-# Crop durations (default)
+# Crop durations (COMPLETE)
 CROP_DURATIONS = {
     "Rice": {"duration_days": 120},
     "Wheat": {"duration_days": 150},
     "Cotton(lint)": {"duration_days": 180},
     "Maize": {"duration_days": 90},
     "Sugarcane": {"duration_days": 365},
+    "Bajra": {"duration_days": 70},
+    "Jowar": {"duration_days": 100},
+    "Ragi": {"duration_days": 120},
+    "Arhar/Tur": {"duration_days": 150},
+    "Gram": {"duration_days": 120},
+    "Groundnut": {"duration_days": 110},
+    "Soyabean": {"duration_days": 100},
 }
 
-# All available crops
+# All available crops (COMPLETE LIST)
 ALL_CROPS = [
     "Arecanut", "Arhar/Tur", "Bajra", "Banana", "Barley", "Black pepper", "Blackgram", "Brinjal", "Cabbage",
     "Cardamom", "Cashewnut", "Castor seed", "Castorseed", "Cereals", "Coconut", "Coriander", "Cotton", "Cotton(lint)",
@@ -140,7 +147,7 @@ ALL_CROPS = [
     "Total Pulses", "Tur", "Turmeric", "Urad", "Varagu", "Wheat", "other oilseeds"
 ]
 
-# Crop recommendations database
+# Crop recommendations database (COMPLETE)
 CROP_RULES = {
     "rice": {
         "fertilizer_blend": {"npk": "NPK 18-46-0 + 0-0-60 (split)", "note": "Adjust by soil test; split N and K."},
@@ -162,15 +169,15 @@ CROP_RULES = {
         "irrigation": {"title": "Furrow Irrigation", "subtitle": "Critical during tasseling"},
         "pesticides": ["Carbofuran", "Chlorpyrifos", "Lambda-cyhalothrin"]
     },
+    "sugarcane": {
+        "fertilizer_blend": {"npk": "NPK 12-32-16 + Urea split", "note": "Heavy feeder; multiple applications"},
+        "irrigation": {"title": "Drip/Furrow Irrigation", "subtitle": "High water requirement throughout"},
+        "pesticides": ["Carbofuran", "Imidacloprid", "Chlorpyrifos"]
+    },
 }
 
-# Global variables
-_fold_models = None
-_meta_model = None
-_model_loaded = False
-
 # =============================================================================
-# Utility Functions
+# Utility Functions (COMPLETE)
 # =============================================================================
 def _norm_text(s: str) -> str:
     return str(s).strip().lower().replace("&", "and").replace(".", "").replace("-", " ") if s is not None else ""
@@ -247,7 +254,7 @@ def recommend_for_crop(crop: str) -> dict:
     return rule
 
 def fetch_cumulative_weather(lat: float, lon: float, sowing_date, end_date) -> Dict[str, float]:
-    """Fetch cumulative weather from NASA Power API"""
+    """Fetch cumulative weather from NASA Power API (COMPLETE VERSION)"""
     if isinstance(sowing_date, str):
         sowing_date = pd.to_datetime(sowing_date).to_pydatetime()
     if isinstance(end_date, str):
@@ -328,17 +335,19 @@ def fetch_cumulative_weather(lat: float, lon: float, sowing_date, end_date) -> D
             "GDD_sum": gdd_sum,
             "days_count": len(df)
         }
-    except Exception:
+    except Exception as e:
+        st.warning(f"Weather API error: {e}")
         return {"Rainfall_sum": 0.0, "Tavg_mean": 0.0, "Tmax_mean": 0.0, "Tmin_mean": 0.0, "ET0_sum": 0.0, "GDD_sum": 0.0, "days_count": 0}
 
 def _get_historical_lags(state, district, crop, cropyear):
-    """Return dummy lags"""
+    """Return dummy lags (COMPLETE)"""
     lags = {}
     for col in ["yieldcalc", "production", "area", "Rainfall_sum", "Tavg_mean", "Tmax_mean", "Tmin_mean", "ET0_sum", "GDD_sum"]:
         lags[f"{col}_lag1"] = 0.0
     return lags
 
 def _analyze_confidence_and_risks(weather_cumulative, season_progress, lags, fold_std):
+    """Analyze confidence and risks (COMPLETE VERSION)"""
     confidence_breakdown = {
         "base_confidence": 0.50,
         "season_progress_bonus": 0.0,
@@ -424,33 +433,71 @@ def _analyze_confidence_and_risks(weather_cumulative, season_progress, lags, fol
     }
 
 # =============================================================================
-# Model Loading
+# Model Loading - FIXED VERSION WITH DEBUG
 # =============================================================================
 @st.cache_resource
 def load_model():
-    """Load the Ridge stacked model"""
-    global _fold_models, _meta_model, _model_loaded
+    """Load the Ridge stacked model with proper error handling"""
     
     try:
+        st.sidebar.info("🔄 Loading model...")
+        
+        # Load pickle file
         artifacts = joblib.load(MODEL_PATH)
+        st.sidebar.write(f"✓ Loaded pickle file")
+        st.sidebar.write(f"Pickle keys: {list(artifacts.keys())}")
+        
+        # Navigate dictionary structure
+        if 'models_forward_chain' not in artifacts:
+            st.sidebar.error("❌ 'models_forward_chain' key not found!")
+            st.sidebar.write(f"Available keys: {list(artifacts.keys())}")
+            return None, None
+            
         models_forward_chain = artifacts['models_forward_chain']
-        _fold_models = models_forward_chain['yieldcalc']['fold_models']
-        _meta_model = models_forward_chain['yieldcalc']['meta_model']
-        _model_loaded = True
-        return _fold_models, _meta_model
+        st.sidebar.write(f"✓ Found models_forward_chain")
+        st.sidebar.write(f"Forward chain keys: {list(models_forward_chain.keys())}")
+        
+        if 'yieldcalc' not in models_forward_chain:
+            st.sidebar.error("❌ 'yieldcalc' key not found!")
+            return None, None
+            
+        yieldcalc_data = models_forward_chain['yieldcalc']
+        st.sidebar.write(f"✓ Found yieldcalc data")
+        st.sidebar.write(f"Yieldcalc keys: {list(yieldcalc_data.keys())}")
+        
+        # Extract models
+        fold_models = yieldcalc_data.get('fold_models', [])
+        meta_model = yieldcalc_data.get('meta_model', None)
+        
+        if not fold_models:
+            st.sidebar.error("❌ No fold_models found!")
+            return None, None
+            
+        if meta_model is None:
+            st.sidebar.error("❌ No meta_model found!")
+            return None, None
+        
+        st.sidebar.success(f"✅ Loaded {len(fold_models)} fold models + meta model")
+        
+        return fold_models, meta_model
+        
+    except FileNotFoundError:
+        st.sidebar.error(f"❌ Model file not found: {MODEL_PATH}")
+        return None, None
     except Exception as e:
-        st.error(f"Error loading model: {e}")
+        st.sidebar.error(f"❌ Error loading model: {e}")
+        st.sidebar.exception(e)
         return None, None
 
 # =============================================================================
-# Prediction Function
+# Prediction Function (COMPLETE)
 # =============================================================================
 def predict_yield(state, district, crop, land_area, sowing_date_str, end_date_str=None):
     """Core prediction function"""
     fold_models, meta_model = load_model()
     
     if fold_models is None or meta_model is None:
-        raise RuntimeError("Model not loaded")
+        raise RuntimeError("Models failed to load")
 
     sowing_dt = datetime.strptime(sowing_date_str, "%Y-%m-%d")
     ref_date = datetime.strptime(end_date_str, "%Y-%m-%d") if end_date_str else datetime.now()
@@ -481,31 +528,33 @@ def predict_yield(state, district, crop, land_area, sowing_date_str, end_date_st
         **lags, **deltas,
     }])
     
+    # Get predictions from fold models
     base_preds = []
-    for fold_model in fold_models:
+    for i, fold_model in enumerate(fold_models):
         try:
             pred = fold_model.predict(input_data)[0]
             base_preds.append(pred)
-        except:
+        except Exception as e:
+            st.warning(f"Fold {i} prediction failed: {e}")
             continue
 
-    if base_preds:
-        base_preds_array = np.array(base_preds)
-        fold_mean = np.mean(base_preds_array)
-        fold_std = np.std(base_preds_array)
-        
-        stack_features = np.hstack([fold_mean.reshape(1, 1), base_preds_array.reshape(1, -1)])
-        yield_pred_raw = float(meta_model.predict(stack_features)[0])
-        yield_pred = max(0.5, min(yield_pred_raw, 15.0))
-        
-        uncertainty = min(fold_std * 2, yield_pred * 0.20)
-        pred_lower = max(0.1, yield_pred - uncertainty)
-        pred_upper = yield_pred + uncertainty
-    else:
-        yield_pred = 1.0
-        pred_lower, pred_upper = 0.5, 1.5
-        fold_std = 0.5
-        base_preds_array = np.array([])
+    if not base_preds:
+        raise RuntimeError("All fold models failed to predict")
+    
+    base_preds_array = np.array(base_preds)
+    fold_mean = np.mean(base_preds_array)
+    fold_std = np.std(base_preds_array)
+    
+    # Create meta-features
+    stack_features = np.hstack([fold_mean.reshape(1, 1), base_preds_array.reshape(1, -1)])
+    
+    # Final prediction
+    yield_pred_raw = float(meta_model.predict(stack_features)[0])
+    yield_pred = max(0.5, min(yield_pred_raw, 15.0))
+    
+    uncertainty = min(fold_std * 2, yield_pred * 0.20)
+    pred_lower = max(0.1, yield_pred - uncertainty)
+    pred_upper = yield_pred + uncertainty
     
     production_pred = yield_pred * land_area
     insights = _analyze_confidence_and_risks(weather_cumulative, season_info['progress'], lags, fold_std)
@@ -536,26 +585,18 @@ def predict_yield(state, district, crop, land_area, sowing_date_str, end_date_st
         "past_harvest": season_info['past_harvest'],
         "confidence": insights,
         "weather_cumulative": weather_cumulative,
-        "base_predictions": base_preds_array.tolist() if len(base_preds_array) > 0 else [],
+        "base_predictions": base_preds_array.tolist(),
         "fold_std": round(fold_std, 3),
-        "fold_agreement": "High" if fold_std < 0.3 else "Medium" if fold_std < 0.6 else "Low"
+        "fold_agreement": "High" if fold_std < 0.3 else "Medium" if fold_std < 0.6 else "Low",
+        "num_fold_models": len(base_preds)
     }
 
 # =============================================================================
-# Streamlit UI
+# Streamlit UI (COMPLETE)
 # =============================================================================
 
-# Title
 st.markdown("<h1 class='main-title'>Agricultural <span class='accent-text'>Analysis</span></h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align:center; color:#a9b8ae; margin-bottom:30px;'>Enter farm details to receive AI-powered insights</p>", unsafe_allow_html=True)
-
-# Sidebar
-with st.sidebar:
-    st.header("System Information")
-    if _model_loaded:
-        st.success("✓ Model Loaded")
-    else:
-        st.info("Loading model...")
 
 # Main form
 with st.form("farm_form"):
@@ -667,7 +708,7 @@ if submitted:
                 st.write("**Type:** XGBoost Forward Chain + Ridge Stacking")
                 st.write("**Training Period:** 2001-2023")
                 st.write("**Performance:** R²=0.9991, MAE=0.09 t/ha")
-                st.write(f"**Fold Models:** {len(result['base_predictions'])} forward-chain folds")
+                st.write(f"**Fold Models Used:** {result['num_fold_models']} forward-chain folds")
                 st.write("**Weather Aggregation:** Cumulative from sowing to forecast date")
                 
                 st.info("""
@@ -679,3 +720,10 @@ if submitted:
             st.error(f"Prediction failed: {str(e)}")
             with st.expander("Error Details"):
                 st.exception(e)
+
+st.divider()
+st.markdown("""
+<div style='text-align: center; color: #666;'>
+    <p>Built with Streamlit | Powered by Ridge Stacked Ensemble</p>
+</div>
+""", unsafe_allow_html=True)
